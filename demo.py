@@ -250,7 +250,8 @@ class Detector(object):
             if track_instances is not None:
                 track_instances.remove('boxes')
                 track_instances.remove('labels')
-
+            
+            # 模型推理（det+track）
             res = self.model.inference_single_image(cur_img.cuda().float(), (self.dataloader.seq_h, self.dataloader.seq_w), track_instances)
             track_instances = res['track_instances']
             dt_instances = track_instances.to(torch.device('cpu'))
@@ -280,5 +281,8 @@ if __name__ == '__main__':
     if args.output_dir:
         Path(args.output_dir).mkdir(parents=True, exist_ok=True)
 
+    # 构造模型
     detector = Detector(args)
+    
+    # 开始运行
     detector.run()

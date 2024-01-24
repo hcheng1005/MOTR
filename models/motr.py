@@ -486,6 +486,7 @@ class MOTR(nn.Module):
                 for a, b in zip(outputs_class[:-1], outputs_coord[:-1])]
 
     def _forward_single_image(self, samples, track_instances: Instances):
+        # —————————— BACKBONE检测部分 ——————————
         features, pos = self.backbone(samples)
         src, mask = features[-1].decompose()
         assert mask is not None
@@ -511,7 +512,9 @@ class MOTR(nn.Module):
                 srcs.append(src)
                 masks.append(mask)
                 pos.append(pos_l)
-
+        # —————————— BACKBONE检测部分 ——————————
+        
+        # —————————— transformer检测部分 ——————————
         hs, init_reference, inter_references, enc_outputs_class, enc_outputs_coord_unact = self.transformer(srcs, masks, pos, track_instances.query_pos, ref_pts=track_instances.ref_pts)
 
         outputs_classes = []
@@ -640,7 +643,7 @@ class MOTR(nn.Module):
                 }
             else:
                 frame = nested_tensor_from_tensor_list([frame])
-                frame_res = self._forward_single_image(frame, track_instances)
+                frame_res = self._forward_single_image(frame, track_instances) # 模型推理
             frame_res = self._post_process_single_image(frame_res, track_instances, is_last)
 
             track_instances = frame_res['track_instances']
@@ -654,6 +657,12 @@ class MOTR(nn.Module):
         return outputs
 
 
+'''
+name: 
+description: MOTR模型结构定义
+param {*} args
+return {*}
+'''
 def build(args):
     dataset_to_num_classes = {
         'coco': 91,
@@ -667,14 +676,18 @@ def build(args):
     num_classes = dataset_to_num_classes[args.dataset_file]
     device = torch.device(args.device)
 
-    backbone = build_backbone(args)
+    backbone = build_backbone(args) # 图像检测的backbone（resnet50）+position_embedding
 
-    transformer = build_deforamble_transformer(args)
+    transformer = build_deforamble_transformer(args) # 还是检测模型：DETR
     d_model = transformer.d_model
     hidden_dim = args.dim_feedforward
+    
+    # QueryInteractionModule：track和det的交互
     query_interaction_layer = build_query_interaction_layer(args, args.query_interaction_layer, d_model, hidden_dim, d_model*2)
 
+    # tracehedet匹配规则：HungarianMatcher匹配
     img_matcher = build_matcher(args)
+    
     num_frames_per_batch = max(args.sampler_lengths)
     weight_dict = {}
     for i in range(num_frames_per_batch):
@@ -701,6 +714,8 @@ def build(args):
     criterion = ClipMatcher(num_classes, matcher=img_matcher, weight_dict=weight_dict, losses=losses)
     criterion.to(device)
     postprocessors = {}
+    
+    # 构造最终的MOTR（det+track）
     model = MOTR(
         backbone,
         transformer,

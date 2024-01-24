@@ -104,6 +104,7 @@ class HungarianMatcher(nn.Module):
                                              box_cxcywh_to_xyxy(tgt_bbox))
 
             # Final cost matrix
+            # 最终的代价矩阵的每个元素由【类型cost_class】、【 L1 cost 】、【giou】 加权构成
             C = self.cost_bbox * cost_bbox + self.cost_class * cost_class + self.cost_giou * cost_giou
             C = C.view(bs, num_queries, -1).cpu()
 

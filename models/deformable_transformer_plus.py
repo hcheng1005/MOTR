@@ -35,7 +35,7 @@ class DeformableTransformer(nn.Module):
         super().__init__()
 
         self.new_frame_adaptor = None
-        self.d_model = d_model
+        self.d_model = d_model # 模型维度
         self.nhead = nhead
         self.two_stage = two_stage
         self.two_stage_num_proposals = two_stage_num_proposals
