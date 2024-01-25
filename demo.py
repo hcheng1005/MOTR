@@ -188,6 +188,8 @@ class Detector(object):
         self.model = load_model(self.model, args.resume)
         self.model = self.model.cuda()
         self.model.eval()
+        
+        # print(self.model)
 
         # mkidr save_dir
         vid_name, prefix = args.input_video.split('/')[-1].split('.')
@@ -240,7 +242,7 @@ class Detector(object):
         cv2.imwrite(img_path, img_show)
         return img_show
 
-    def run(self, prob_threshold=0.7, area_threshold=100, vis=True, dump=True):
+    def run(self, prob_threshold=0.7, area_threshold=100, vis=False, dump=False):
         # save as video
         fps = self.dataloader.frame_rate
         videowriter = cv2.VideoWriter(self.vid_root, cv2.VideoWriter_fourcc('M','J','P','G'), fps, (self.dataloader.seq_w, self.dataloader.seq_h))

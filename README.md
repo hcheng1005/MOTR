@@ -189,7 +189,7 @@ python3 demo.py \
     --lr_drop 100 \
     --lr 2e-4 \
     --lr_backbone 2e-5 \
-    --pretrained ${EXP_DIR}/motr_final.pth \
+    --pretrained ${EXP_DIR}/model_motr_final.pth \
     --output_dir ${EXP_DIR} \
     --batch_size 1 \
     --sample_mode 'random_interval' \
@@ -203,8 +203,8 @@ python3 demo.py \
     --fp_ratio 0.3 \
     --query_interaction_layer 'QIM' \
     --extra_track_attn \
-    --resume ${EXP_DIR}/motr_final.pth \
-    --input_video figs/demo.avi
+    --resume ${EXP_DIR}/model_motr_final.pth \
+    --input_video figs/mot16_07.avi
 ```
 
 ## Citing MOTR

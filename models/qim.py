@@ -59,6 +59,11 @@ class FFN(nn.Module):
         return tgt
 
 
+'''
+name: QueryInteractionModule
+description: 检测与目标的交互（也就是跟踪模型）
+return {*}
+'''
 class QueryInteractionModule(QueryInteractionBase):
     def __init__(self, args, dim_in, hidden_dim, dim_out):
         super().__init__(args, dim_in, hidden_dim, dim_out)
@@ -171,16 +176,24 @@ class QueryInteractionModule(QueryInteractionBase):
         query_feat2 = self.linear_feat2(self.dropout_feat1(self.activation(self.linear_feat1(tgt))))
         query_feat = query_feat + self.dropout_feat2(query_feat2)
         query_feat = self.norm_feat(query_feat)
-        track_instances.query_pos[:, dim//2:] = query_feat
+        track_instances.query_pos[:, dim//2:] = query_feat # 此处更新目标query_pos的feature
 
         track_instances.ref_pts = inverse_sigmoid(track_instances.pred_boxes[:, :2].detach().clone())
         return track_instances
 
+    # 模型推理：
+    '''
+    name: 
+    description: 跟踪模型推理部分
+    param {*} self
+    param {*} data
+    return {*}
+    '''
     def forward(self, data) -> Instances:
-        active_track_instances = self._select_active_tracks(data)
-        active_track_instances = self._update_track_embedding(active_track_instances)
-        init_track_instances: Instances = data['init_track_instances']
-        merged_track_instances = Instances.cat([init_track_instances, active_track_instances])
+        active_track_instances = self._select_active_tracks(data) # 挑选老航迹
+        active_track_instances = self._update_track_embedding(active_track_instances) # 航迹更新
+        init_track_instances: Instances = data['init_track_instances'] # 起始新航迹
+        merged_track_instances = Instances.cat([init_track_instances, active_track_instances]) # 合并新老航迹
         return merged_track_instances
 
 

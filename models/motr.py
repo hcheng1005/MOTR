@@ -300,6 +300,11 @@ class ClipMatcher(SetCriterion):
         return losses
 
 
+'''
+name: 
+description: Briefly describe the function of your function
+return {*}
+'''
 class RuntimeTrackerBase(object):
     def __init__(self, score_thresh=0.7, filter_score_thresh=0.6, miss_tolerance=5):
         self.score_thresh = score_thresh
@@ -310,16 +315,25 @@ class RuntimeTrackerBase(object):
     def clear(self):
         self.max_obj_id = 0
 
+    '''
+    name: update
+    description: 航迹新建与删除
+    param {*} self
+    param {Instances} track_instances
+    return {*}
+    '''
     def update(self, track_instances: Instances):
         track_instances.disappear_time[track_instances.scores >= self.score_thresh] = 0
         for i in range(len(track_instances)):
-            if track_instances.obj_idxes[i] == -1 and track_instances.scores[i] >= self.score_thresh:
-                # print("track {} has score {}, assign obj_id {}".format(i, track_instances.scores[i], self.max_obj_id))
+            # 目标score大于score_thresh，则起始新航迹
+            if track_instances.obj_idxes[i] == -1 and track_instances.scores[i] >= self.score_thresh: # 新建航迹
+                print("track {} has score {}, assign obj_id {}".format(i, track_instances.scores[i], self.max_obj_id))
                 track_instances.obj_idxes[i] = self.max_obj_id
                 self.max_obj_id += 1
+            # 现有航迹的score低于filter_score_thresh，进行disappear_time累加，达到门限后删除该航迹
             elif track_instances.obj_idxes[i] >= 0 and track_instances.scores[i] < self.filter_score_thresh:
                 track_instances.disappear_time[i] += 1
-                if track_instances.disappear_time[i] >= self.miss_tolerance:
+                if track_instances.disappear_time[i] >= self.miss_tolerance: # 删除航迹
                     # Set the obj_id to -1.
                     # Then this track will be removed by TrackEmbeddingLayer.
                     track_instances.obj_idxes[i] = -1
@@ -382,7 +396,7 @@ class MOTR(nn.Module):
         super().__init__()
         self.num_queries = num_queries
         self.track_embed = track_embed
-        self.transformer = transformer
+        self.transformer = transformer # detr部分
         hidden_dim = transformer.d_model
         self.num_classes = num_classes
         self.class_embed = nn.Linear(hidden_dim, num_classes)
@@ -390,7 +404,7 @@ class MOTR(nn.Module):
         self.num_feature_levels = num_feature_levels
         self.use_checkpoint = use_checkpoint
         if not two_stage:
-            self.query_embed = nn.Embedding(num_queries, hidden_dim * 2)
+            self.query_embed = nn.Embedding(num_queries, hidden_dim * 2) # 每个queries（目标、航迹）都有hidden_dim * 2个特征
         if num_feature_levels > 1:
             num_backbone_outs = len(backbone.strides)
             input_proj_list = []
@@ -485,9 +499,18 @@ class MOTR(nn.Module):
         return [{'pred_logits': a, 'pred_boxes': b, }
                 for a, b in zip(outputs_class[:-1], outputs_coord[:-1])]
 
+
+    '''
+    name: _forward_single_image
+    description: 似乎只是检测算法？
+    param {*} self
+    param {*} samples
+    param {Instances} track_instances
+    return {*}
+    '''
     def _forward_single_image(self, samples, track_instances: Instances):
         # —————————— BACKBONE检测部分 ——————————
-        features, pos = self.backbone(samples)
+        features, pos = self.backbone(samples) # resnet
         src, mask = features[-1].decompose()
         assert mask is not None
 
@@ -515,8 +538,12 @@ class MOTR(nn.Module):
         # —————————— BACKBONE检测部分 ——————————
         
         # —————————— transformer检测部分 ——————————
-        hs, init_reference, inter_references, enc_outputs_class, enc_outputs_coord_unact = self.transformer(srcs, masks, pos, track_instances.query_pos, ref_pts=track_instances.ref_pts)
-
+        hs, init_reference, inter_references, enc_outputs_class, enc_outputs_coord_unact = self.transformer(srcs, masks, pos, 
+                                                                                                            track_instances.query_pos, 
+                                                                                                            ref_pts=track_instances.ref_pts)
+        # —————————— transformer检测部分 ——————————
+        
+        # 一些后处理
         outputs_classes = []
         outputs_coords = []
         for lvl in range(hs.shape[0]):
@@ -545,6 +572,11 @@ class MOTR(nn.Module):
         out['hs'] = hs[-1]
         return out
     
+    '''
+    name: _post_process_single_image
+    description: 跟踪部分
+    return {*}
+    '''
     def _post_process_single_image(self, frame_res, track_instances, is_last):
         with torch.no_grad():
             if self.training:
@@ -552,10 +584,15 @@ class MOTR(nn.Module):
             else:
                 track_scores = frame_res['pred_logits'][0, :, 0].sigmoid()
 
-        track_instances.scores = track_scores
-        track_instances.pred_logits = frame_res['pred_logits'][0]
-        track_instances.pred_boxes = frame_res['pred_boxes'][0]
-        track_instances.output_embedding = frame_res['hs'][0]
+        track_instances.scores = track_scores # 更新航迹score
+        
+        for i in range(len(track_scores)):
+            print(track_instances.obj_idxes[i], track_scores[i])
+        
+        track_instances.pred_logits = frame_res['pred_logits'][0] # 检测结果类型
+        track_instances.pred_boxes = frame_res['pred_boxes'][0] # 检测结果box
+        track_instances.output_embedding = frame_res['hs'][0] # 检测目标的特征？
+        
         if self.training:
             # the track id will be assigned by the mather.
             frame_res['track_instances'] = track_instances
@@ -569,27 +606,40 @@ class MOTR(nn.Module):
             # track_instances.scores = track_instances.track_scores.sigmoid()
             if self.training:
                 self.criterion.calc_loss_for_track_scores(track_instances)
+                
         tmp = {}
-        tmp['init_track_instances'] = self._generate_empty_tracks()
-        tmp['track_instances'] = track_instances
+        tmp['init_track_instances'] = self._generate_empty_tracks() # TODO ？？
+        tmp['track_instances'] = track_instances 
         if not is_last:
-            out_track_instances = self.track_embed(tmp)
+            # track_embed：[query_interaction_layer]
+            out_track_instances = self.track_embed(tmp) # embding特征更新
             frame_res['track_instances'] = out_track_instances
         else:
             frame_res['track_instances'] = None
         return frame_res
 
+    
+    '''
+    name: inference_single_image
+    description: 模型单帧推理
+    '''
     @torch.no_grad()
     def inference_single_image(self, img, ori_img_size, track_instances=None):
         if not isinstance(img, NestedTensor):
             img = nested_tensor_from_tensor_list(img)
         if track_instances is None:
             track_instances = self._generate_empty_tracks()
-        res = self._forward_single_image(img,
-                                         track_instances=track_instances)
+        
+        # 目标检测部分
+        res = self._forward_single_image(img, track_instances=track_instances)
+        print(res.keys())
+        
+        #
         res = self._post_process_single_image(res, track_instances, False)
 
         track_instances = res['track_instances']
+        
+        # 航迹后处理
         track_instances = self.post_process(track_instances, ori_img_size)
         ret = {'track_instances': track_instances}
         if 'ref_pts' in res:
@@ -676,9 +726,11 @@ def build(args):
     num_classes = dataset_to_num_classes[args.dataset_file]
     device = torch.device(args.device)
 
-    backbone = build_backbone(args) # 图像检测的backbone（resnet50）+position_embedding
+    # 图像检测的backbone（resnet50）+position_embedding
+    backbone = build_backbone(args) 
 
-    transformer = build_deforamble_transformer(args) # 还是检测模型：DETR
+     # 还是检测模型：DETR
+    transformer = build_deforamble_transformer(args)
     d_model = transformer.d_model
     hidden_dim = args.dim_feedforward
     
