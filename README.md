@@ -180,7 +180,7 @@ For BDD100K dataset, please refer [motr_bdd100k](https://github.com/megvii-model
 We also provide a demo interface which allows for a quick processing of a given video.
 
 ```bash
-EXP_DIR=exps/e2e_motr_r50_joint
+EXP_DIR=pth
 python3 demo.py \
     --meta_arch motr \
     --dataset_file e2e_joint \

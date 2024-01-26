@@ -324,10 +324,11 @@ class RuntimeTrackerBase(object):
     '''
     def update(self, track_instances: Instances):
         track_instances.disappear_time[track_instances.scores >= self.score_thresh] = 0
+        print(":len(track_instances): ", len(track_instances))
         for i in range(len(track_instances)):
             # 目标score大于score_thresh，则起始新航迹
             if track_instances.obj_idxes[i] == -1 and track_instances.scores[i] >= self.score_thresh: # 新建航迹
-                print("track {} has score {}, assign obj_id {}".format(i, track_instances.scores[i], self.max_obj_id))
+                # print("track {} has score {}, assign obj_id {}".format(i, track_instances.scores[i], self.max_obj_id))
                 track_instances.obj_idxes[i] = self.max_obj_id
                 self.max_obj_id += 1
             # 现有航迹的score低于filter_score_thresh，进行disappear_time累加，达到门限后删除该航迹
@@ -518,32 +519,34 @@ class MOTR(nn.Module):
         masks = []
         for l, feat in enumerate(features):
             src, mask = feat.decompose()
-            srcs.append(self.input_proj[l](src))
+            srcs.append(self.input_proj[l](src)) # 对bbackbone的输出再过一层模型
             masks.append(mask)
             assert mask is not None
 
+        print("len(srcs): ", len(srcs))
         if self.num_feature_levels > len(srcs):
             _len_srcs = len(srcs)
             for l in range(_len_srcs, self.num_feature_levels):
+                # 对bbackbone的输出再过一层模型
                 if l == _len_srcs:
                     src = self.input_proj[l](features[-1].tensors)
                 else:
                     src = self.input_proj[l](srcs[-1])
                 m = samples.mask
                 mask = F.interpolate(m[None].float(), size=src.shape[-2:]).to(torch.bool)[0]
-                pos_l = self.backbone[1](NestedTensor(src, mask)).to(src.dtype)
+                pos_l = self.backbone[1](NestedTensor(src, mask)).to(src.dtype) # 此处是 position_embedding
                 srcs.append(src)
                 masks.append(mask)
                 pos.append(pos_l)
-        # —————————— BACKBONE检测部分 ——————————
         
         # —————————— transformer检测部分 ——————————
+        # hs和inter_references是DeformableTransformerDecoder的输出结果
+        # init_reference是track_instances.ref_pts经过sigmod的结果
         hs, init_reference, inter_references, enc_outputs_class, enc_outputs_coord_unact = self.transformer(srcs, masks, pos, 
                                                                                                             track_instances.query_pos, 
                                                                                                             ref_pts=track_instances.ref_pts)
-        # —————————— transformer检测部分 ——————————
-        
-        # 一些后处理
+        print("hs.shape: ", hs.shape) # torch.Size([6, 1, 326, 256])
+        # DETR后处理。，目标类型、box解码
         outputs_classes = []
         outputs_coords = []
         for lvl in range(hs.shape[0]):
@@ -552,8 +555,8 @@ class MOTR(nn.Module):
             else:
                 reference = inter_references[lvl - 1]
             reference = inverse_sigmoid(reference)
-            outputs_class = self.class_embed[lvl](hs[lvl])
-            tmp = self.bbox_embed[lvl](hs[lvl])
+            outputs_class = self.class_embed[lvl](hs[lvl])  # 类型检测模块
+            tmp = self.bbox_embed[lvl](hs[lvl])             # box检测模块
             if reference.shape[-1] == 4:
                 tmp += reference
             else:
@@ -562,36 +565,37 @@ class MOTR(nn.Module):
             outputs_coord = tmp.sigmoid()
             outputs_classes.append(outputs_class)
             outputs_coords.append(outputs_coord)
-        outputs_class = torch.stack(outputs_classes)
-        outputs_coord = torch.stack(outputs_coords)
+        outputs_class = torch.stack(outputs_classes) # 类型
+        outputs_coord = torch.stack(outputs_coords) # box
 
         ref_pts_all = torch.cat([init_reference[None], inter_references[:, :, :, :2]], dim=0)
         out = {'pred_logits': outputs_class[-1], 'pred_boxes': outputs_coord[-1], 'ref_pts': ref_pts_all[5]}
         if self.aux_loss:
             out['aux_outputs'] = self._set_aux_loss(outputs_class, outputs_coord)
-        out['hs'] = hs[-1]
+        out['hs'] = hs[-1] #提取最后一层feature作为track_instances.output_embedding
         return out
     
     '''
     name: _post_process_single_image
-    description: 跟踪部分
+    description: 跟踪部分(部分跟踪模块，比如关联匹配已经在DETR中做掉了)
     return {*}
     '''
     def _post_process_single_image(self, frame_res, track_instances, is_last):
         with torch.no_grad():
+            # 这里的pred_logits是DETR模型检测加后处理后的结果，也就是已经经过模型推理了
             if self.training:
                 track_scores = frame_res['pred_logits'][0, :].sigmoid().max(dim=-1).values
             else:
-                track_scores = frame_res['pred_logits'][0, :, 0].sigmoid()
-
+                track_scores = frame_res['pred_logits'][0, :, 0].sigmoid() 
         track_instances.scores = track_scores # 更新航迹score
         
-        for i in range(len(track_scores)):
-            print(track_instances.obj_idxes[i], track_scores[i])
+        # for i in range(len(track_scores)):
+        #     print(track_instances.obj_idxes[i], track_scores[i])
         
+        # 更新航迹的相关属性
         track_instances.pred_logits = frame_res['pred_logits'][0] # 检测结果类型
         track_instances.pred_boxes = frame_res['pred_boxes'][0] # 检测结果box
-        track_instances.output_embedding = frame_res['hs'][0] # 检测目标的特征？
+        track_instances.output_embedding = frame_res['hs'][0] # 检测目标的特征？detr的输出结果，
         
         if self.training:
             # the track id will be assigned by the mather.
@@ -599,6 +603,7 @@ class MOTR(nn.Module):
             track_instances = self.criterion.match_for_single_frame(frame_res)
         else:
             # each track will be assigned an unique global id by the track base.
+            # 航迹管理模块，目标的新生与删除
             self.track_base.update(track_instances)
         if self.memory_bank is not None:
             track_instances = self.memory_bank(track_instances)
@@ -632,9 +637,9 @@ class MOTR(nn.Module):
         
         # 目标检测部分
         res = self._forward_single_image(img, track_instances=track_instances)
-        print(res.keys())
+        # print(res.keys())
         
-        #
+        # track_instances特征更新
         res = self._post_process_single_image(res, track_instances, False)
 
         track_instances = res['track_instances']
@@ -731,7 +736,7 @@ def build(args):
 
      # 还是检测模型：DETR
     transformer = build_deforamble_transformer(args)
-    d_model = transformer.d_model
+    d_model = transformer.d_model # 维度
     hidden_dim = args.dim_feedforward
     
     # QueryInteractionModule：track和det的交互
@@ -782,4 +787,9 @@ def build(args):
         memory_bank=memory_bank,
         use_checkpoint=args.use_checkpoint,
     )
+    
+    # print(args)
+    # print(model.transformer)
+    
+    
     return model, criterion, postprocessors

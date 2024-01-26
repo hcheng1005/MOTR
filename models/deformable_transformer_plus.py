@@ -446,22 +446,22 @@ def _get_activation_fn(activation):
 
 def build_deforamble_transformer(args):
     return DeformableTransformer(
-        d_model=args.hidden_dim,
-        nhead=args.nheads,
-        num_encoder_layers=args.enc_layers,
-        num_decoder_layers=args.dec_layers,
-        dim_feedforward=args.dim_feedforward,
+        d_model=args.hidden_dim, # 256
+        nhead=args.nheads,      # 8
+        num_encoder_layers=args.enc_layers, # 6
+        num_decoder_layers=args.dec_layers, # 6
+        dim_feedforward=args.dim_feedforward, # 1024
         dropout=args.dropout,
         activation="relu",
         return_intermediate_dec=True,
-        num_feature_levels=args.num_feature_levels,
-        dec_n_points=args.dec_n_points,
-        enc_n_points=args.enc_n_points,
-        two_stage=args.two_stage,
-        two_stage_num_proposals=args.num_queries,
-        decoder_self_cross=not args.decoder_cross_self,
-        sigmoid_attn=args.sigmoid_attn,
-        extra_track_attn=args.extra_track_attn,
+        num_feature_levels=args.num_feature_levels, # 4
+        dec_n_points=args.dec_n_points, # 4
+        enc_n_points=args.enc_n_points, # 4
+        two_stage=args.two_stage, # False
+        two_stage_num_proposals=args.num_queries, # 300
+        decoder_self_cross=not args.decoder_cross_self, # False
+        sigmoid_attn=args.sigmoid_attn, # False
+        extra_track_attn=args.extra_track_attn, # True
     )
 
 

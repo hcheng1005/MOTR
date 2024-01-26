@@ -116,6 +116,8 @@ class Joiner(nn.Sequential):
         self.num_channels = backbone.num_channels
 
     def forward(self, tensor_list: NestedTensor):
+        print("Joiner(backbone, position_embedding)")
+        print("Input img size: {}".format(tensor_list.tensors.shape) )
         xs = self[0](tensor_list)
         out: List[NestedTensor] = []
         pos = []
@@ -124,8 +126,11 @@ class Joiner(nn.Sequential):
 
         # position encoding
         for x in out:
-            pos.append(self[1](x).to(x.tensors.dtype))
-
+            pos.append(self[1](x).to(x.tensors.dtype)) # 调用position_embedding进行编码
+        
+        print("Output feature size: {}".format(out[0].tensors.shape))
+        print("Output pos size: {}".format(pos[0].shape))
+        
         return out, pos
 
 
